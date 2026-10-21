@@ -224,10 +224,17 @@ impl MagiskAction {
             PostFsData(_) => {
                 let fd = connect_daemon(RequestCode::POST_FS_DATA, true)?;
                 let mut pfd = [PollFd::new(fd.as_fd(), PollFlags::POLLIN)];
-                nix::poll::poll(
+                // Pocket copies its private module view instead of mounting it.
+                // Slow storage can outlast Android's normal 40-second window.
+                let wait = if crate::pocket::enabled() { 110 } else { POST_FS_DATA_WAIT_TIME };
+                let ready = nix::poll::poll(
                     &mut pfd,
-                    PollTimeout::try_from(POST_FS_DATA_WAIT_TIME * 1000)?,
+                    PollTimeout::try_from(wait * 1000)?,
                 )?;
+                if crate::pocket::enabled() && ready == 0 {
+                    eprintln!("Pocket post-fs-data did not finish before the startup deadline");
+                    return Ok(1);
+                }
             }
             Service(_) => {
                 let _ = connect_daemon(RequestCode::LATE_START, true)?;
