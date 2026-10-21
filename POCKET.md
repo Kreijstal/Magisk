@@ -45,8 +45,12 @@ necessary Pocket helpers. Private signing identities and administration tokens
 are not included.
 
 Device validation on an unrooted Samsung SM-G780G has passed the actual daemon
-version handshake, database query, and `magisk su -c 'id -u'` returning logical
-guest UID 0. Module installation and complete reboot integration are still
-under active validation. See the matching Pocket repository for current results.
+version handshake, database access policy, and MagiskSU returning logical guest
+UID 0. The official module ZIP installer, module activation across standalone
+AOSP init restarts, script ordering, and resetprop create/update/delete also
+passed. Pocket enables owner writes on its private guest property files because
+logical root lacks the host kernel's DAC override capability. Complete Android
+UI boot and manager UI integration remain under validation. See the matching
+Pocket repository for current results.
 
 The original Magisk GPL-3.0 license and copyright notices remain applicable.
