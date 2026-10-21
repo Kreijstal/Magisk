@@ -23,7 +23,7 @@ static const char *bbpath() {
 static void set_script_env() {
     setenv("ASH_STANDALONE", "1", 1);
     char new_path[4096];
-    ssprintf(new_path, sizeof(new_path), "%s:%s", getenv("PATH"), get_magisk_tmp());
+    ssprintf(new_path, sizeof(new_path), "%s/" BBPATH ":%s:%s", get_magisk_tmp(), getenv("PATH"), get_magisk_tmp());
     setenv("PATH", new_path, 1);
     if (MagiskD::Get().zygisk_enabled())
         setenv("ZYGISK_ENABLED", "1", 1);
@@ -226,6 +226,7 @@ void install_module(Utf8CStr file) {
     xdup2(fd, STDERR_FILENO);
     close(fd);
 
+    set_script_env();
     const char *argv[] = { BBEXEC_CMD, "-c", install_module_script, nullptr };
     execve(argv[0], (char **) argv, environ);
     abort(stdout, "Failed to execute BusyBox shell");

@@ -56,6 +56,12 @@ fn level_to_prio(level: LogLevel) -> i32 {
 }
 
 fn android_log_write(level: LogLevel, msg: &Utf8CStr) {
+    if crate::pocket::enabled() {
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/logs/magisk.log") {
+            writeln!(file, "{}: {}", level_to_prio(level), msg.as_str()).ok();
+        }
+        return;
+    }
     unsafe {
         __android_log_write(level_to_prio(level), raw_cstr!("Magisk"), msg.as_ptr());
     }

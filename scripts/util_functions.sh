@@ -116,6 +116,7 @@ setup_flashable() {
 }
 
 ensure_bb() {
+  [ -n "$POCKET_DIRECT_ROOT" ] && return
   if set -o | grep -q standalone; then
     # We are definitely in busybox ash
     set -o standalone
@@ -272,6 +273,12 @@ mount_ro_ensure() {
 # After calling this method, the following variables will be set:
 # SLOT, SYSTEM_AS_ROOT, LEGACYSAR
 mount_partitions() {
+  if [ -n "$POCKET_DIRECT_ROOT" ]; then
+    SLOT=
+    SYSTEM_AS_ROOT=false
+    LEGACYSAR=false
+    return
+  fi
   # Check A/B slot
   SLOT=$(grep_cmdline androidboot.slot_suffix)
   if [ -z $SLOT ]; then
@@ -606,7 +613,7 @@ set_perm() {
   chmod $4 $1 || return 1
   local CON=$5
   [ -z $CON ] && CON=u:object_r:system_file:s0
-  chcon $CON $1 || return 1
+  [ -n "$POCKET_DIRECT_ROOT" ] || chcon $CON $1 || return 1
 }
 
 set_perm_recursive() {
@@ -645,7 +652,7 @@ set_default_perm() {
 install_module() {
   rm -rf $TMPDIR
   mkdir -p $TMPDIR
-  chcon u:object_r:system_file:s0 $TMPDIR
+  [ -n "$POCKET_DIRECT_ROOT" ] || chcon u:object_r:system_file:s0 $TMPDIR
   cd $TMPDIR
 
   setup_flashable
@@ -674,7 +681,7 @@ install_module() {
   # Create mod paths
   rm -rf $MODPATH
   mkdir -p $MODPATH
-  chcon u:object_r:system_file:s0 $MODPATH
+  [ -n "$POCKET_DIRECT_ROOT" ] || chcon u:object_r:system_file:s0 $MODPATH
 
   if is_legacy_script; then
     unzip -oj "$ZIPFILE" module.prop install.sh uninstall.sh 'common/*' -d $TMPDIR >&2
@@ -755,6 +762,7 @@ install_module() {
 ##########
 
 # Detect whether in boot mode
+[ -n "$POCKET_DIRECT_ROOT" ] && BOOTMODE=true
 [ -z $BOOTMODE ] && ps | grep zygote | grep -qv grep && BOOTMODE=true
 [ -z $BOOTMODE ] && ps -A 2>/dev/null | grep zygote | grep -qv grep && BOOTMODE=true
 [ -z $BOOTMODE ] && BOOTMODE=false

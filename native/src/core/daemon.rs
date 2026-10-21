@@ -177,10 +177,15 @@ impl MagiskD {
     }
 
     fn handle_requests(&'static self, mut client: UnixStream) {
-        let Ok(cred) = client.peer_cred() else {
+        let Ok(mut cred) = client.peer_cred() else {
             // Client died
             return;
         };
+
+        if !crate::pocket::peer_identity(&mut cred) {
+            client.write_pod(&RespondCode::ACCESS_DENIED.repr).log_ok();
+            return;
+        }
 
         // There are no abstractions for SO_PEERSEC yet, call the raw C API.
         let mut context = cstr::buf::new::<256>();
@@ -300,7 +305,7 @@ fn daemon_entry() {
     setsid().log_ok();
 
     // Make sure the current context is magisk
-    if let Ok(mut current) =
+    if !crate::pocket::enabled() && let Ok(mut current) =
         cstr!("/proc/self/attr/current").open(OFlag::O_WRONLY | OFlag::O_CLOEXEC)
     {
         let con = cstr!(MAGISK_PROC_CON);
@@ -354,11 +359,14 @@ fn daemon_entry() {
 
     // Escape from cgroup
     let pid = getpid().as_raw();
+    if !crate::pocket::enabled() {
     switch_cgroup("/acct", pid);
     switch_cgroup("/dev/cg2_bpf", pid);
     switch_cgroup("/sys/fs/cgroup", pid);
     if get_prop(cstr!("ro.config.per_app_memcg")) != "false" {
         switch_cgroup("/dev/memcg/apps", pid);
+    }
+
     }
 
     // Samsung workaround #7887
@@ -414,7 +422,7 @@ fn daemon_entry() {
     };
 
     sock_path.follow_link().chmod(0o666).log_ok();
-    sock_path.set_secontext(cstr!(MAGISK_FILE_CON)).log_ok();
+    if !crate::pocket::enabled() { sock_path.set_secontext(cstr!(MAGISK_FILE_CON)).log_ok(); }
 
     // Loop forever to listen for requests
     let daemon = MagiskD::get();
@@ -463,6 +471,12 @@ pub fn connect_daemon(code: RequestCode, create: bool) -> LoggedResult<UnixStrea
                 || !buf.starts_with(get_magisk_tmp().as_str())
             {
                 return log_err!("Start daemon on magisk tmpfs");
+            }
+
+            // Pocket init supervises the daemon as an ordinary foreground child.
+            if crate::pocket::enabled() && std::env::var_os("POCKET_MAGISK_FOREGROUND").is_some() {
+                daemon_entry();
+                exit(0);
             }
 
             // Fork a process and run the daemon

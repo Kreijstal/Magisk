@@ -383,6 +383,8 @@ void exec_root_shell(int client, int pid, SuRequest &req, MntNsMode mode) {
     close(ptsfd);
     close(client);
 
+    if (getenv("POCKET_DIRECT_ROOT")) mode = MntNsMode::Global;
+
     // Handle namespaces
     if (req.target_pid == -1)
         req.target_pid = pid;

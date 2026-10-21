@@ -35,6 +35,7 @@ mod magisk;
 mod module;
 mod mount;
 mod package;
+mod pocket;
 mod resetprop;
 mod selinux;
 mod socket;

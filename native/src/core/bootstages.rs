@@ -130,6 +130,14 @@ impl MagiskD {
             return true;
         }
 
+        // Kernel-backed features cannot be enabled by a rootless guest.
+        if crate::pocket::enabled() {
+            self.zygisk_enabled.store(false, Ordering::Release);
+            exec_common_scripts(cstr!("post-fs-data"));
+            self.handle_modules();
+            return false;
+        }
+
         // Check safe mode
         let boot_cnt = self.get_db_setting(DbEntryKey::BootloopCount);
         self.set_db_setting(DbEntryKey::BootloopCount, boot_cnt + 1)
@@ -183,6 +191,7 @@ impl MagiskD {
             secure_dir.mkdir(0o700).log_ok();
         }
 
+        if crate::pocket::enabled() { return; }
         setup_preinit_dir();
         self.ensure_manager();
         if self.zygisk_enabled.load(Ordering::Relaxed) {
@@ -224,6 +233,7 @@ impl MagiskD {
 }
 
 fn check_data() -> bool {
+    if crate::pocket::enabled() { return std::path::Path::new("/data/adb/magisk").is_dir(); }
     if let Ok(file) = cstr!("/proc/mounts").open(OFlag::O_RDONLY | OFlag::O_CLOEXEC) {
         let mut mnt = false;
         BufReader::new(file).for_each_line(|line| {

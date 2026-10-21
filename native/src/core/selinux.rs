@@ -52,6 +52,7 @@ fn restore_syscon(path: &mut dyn Utf8CStrBuf) -> LoggedResult<()> {
 }
 
 pub(crate) fn restorecon() {
+    if crate::pocket::enabled() { return; }
     if let Ok(mut file) = cstr!("/sys/fs/selinux/context")
         .open(OFlag::O_WRONLY | OFlag::O_CLOEXEC)
         .log()
@@ -73,6 +74,7 @@ pub(crate) fn restorecon() {
 }
 
 pub(crate) fn restore_tmpcon() -> LoggedResult<()> {
+    if crate::pocket::enabled() { return Ok(()); }
     let tmp = get_magisk_tmp();
     if tmp == "/sbin" {
         tmp.set_secontext(ROOT_CON)?;

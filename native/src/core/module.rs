@@ -720,6 +720,13 @@ fn collect_modules(zygisk_enabled: bool, open_zygisk: bool) -> Vec<ModuleInfo> {
             return Ok(());
         }
 
+        if crate::pocket::enabled() && (
+            (dir.contains_path(cstr!("system")) && !dir.contains_path(cstr!("skip_mount"))) ||
+            dir.contains_path(cstr!("sepolicy.rule")) || dir.contains_path(cstr!("zygisk")) ||
+            dir.contains_path(cstr!("riru"))) {
+            info!("{name}: unsupported kernel/mount/injection features in Pocket; skipped");
+            return Ok(());
+        }
         let mut z32 = -1;
         let mut z64 = -1;
 
@@ -821,7 +828,7 @@ fn collect_modules(zygisk_enabled: bool, open_zygisk: bool) -> Vec<ModuleInfo> {
 
 impl MagiskD {
     pub fn handle_modules(&self) {
-        setup_module_mount();
+        if !crate::pocket::enabled() { setup_module_mount(); }
         upgrade_modules().ok();
 
         let zygisk = self.zygisk_enabled.load(Ordering::Acquire);
@@ -830,7 +837,15 @@ impl MagiskD {
 
         // Recollect modules (module scripts could remove itself)
         let modules = collect_modules(zygisk, true);
-        self.apply_modules(&modules);
+        if crate::pocket::enabled() {
+            for m in &modules {
+                let prop = format!("{}/{}/system.prop", MODULEROOT, m.name);
+                let prop = Utf8CString::from(prop);
+                if prop.exists() { load_prop_file(&prop); }
+            }
+        } else {
+            self.apply_modules(&modules);
+        }
 
         self.module_list.set(modules).ok();
     }
