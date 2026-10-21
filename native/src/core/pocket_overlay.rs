@@ -73,8 +73,11 @@ pub fn build(root: &Path, modules: &[&Path], zygisk: bool) -> io::Result<()> {
     }
     if zygisk {
         let target = view.join("system/lib64/libpocket_zygisk.so");
-        remove(&target)?;
-        fs::copy(root.join("sbin/magisk"), target)?;
+        // A user-installed provider module can supply the cooperative ABI.
+        // The built-in Zygisk provider is only the default fallback.
+        if !target.exists() {
+            fs::copy(root.join("sbin/magisk"), target)?;
+        }
     }
     // The runtime checks this marker; an incomplete tree never becomes active.
     fs::write(view.join("ready"), b"1\n")
@@ -107,6 +110,29 @@ mod tests {
         build(&root, &[], false).unwrap();
         assert!(!view.exists());
         assert_eq!(fs::read(root.join("system/etc/value")).unwrap(), b"base");
+        remove(&root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod provider_tests {
+    use super::*;
+    #[test]
+    fn user_provider_overrides_default_and_removal_restores_default() {
+        let root = std::env::temp_dir().join(format!("pocket-provider-{}", std::process::id()));
+        remove(&root).unwrap();
+        fs::create_dir_all(root.join("system/lib64")).unwrap();
+        fs::create_dir_all(root.join("sbin")).unwrap();
+        fs::write(root.join("sbin/magisk"), b"default provider").unwrap();
+        let module = root.join("provider-module");
+        fs::create_dir_all(module.join("system/lib64")).unwrap();
+        fs::write(module.join("system/lib64/libpocket_zygisk.so"), b"user provider").unwrap();
+        build(&root, &[&module], true).unwrap();
+        let selected = root.join(".pocket-module-view/system/lib64/libpocket_zygisk.so");
+        assert_eq!(fs::read(&selected).unwrap(), b"user provider");
+        assert!(!root.join("system/lib64/libpocket_zygisk.so").exists());
+        build(&root, &[], true).unwrap();
+        assert_eq!(fs::read(&selected).unwrap(), b"default provider");
         remove(&root).unwrap();
     }
 }
