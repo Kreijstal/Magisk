@@ -130,6 +130,10 @@ private:
 
 ZygiskContext *g_ctx;
 static HookContext *g_hook;
+static bool pocket_runtime() {
+    const char *root = getenv("POCKET_DIRECT_ROOT");
+    return root && root[0] == '/';
+}
 
 static JniHookDefinitions *get_defs() {
     return g_hook;
@@ -256,7 +260,13 @@ ZygiskContext::~ZygiskContext() {
     // Cleanup
     g_hook->should_unmap = true;
     g_hook->restore_zygote_hook(env);
-    g_hook->hook_unloader();
+    if (pocket_runtime()) {
+        // Explicitly loaded by our controlled zygote, not native bridge. Keep
+        // this library mapped; the upstream native-bridge unloader is inapplicable.
+        g_hook->restore_plt_hook();
+    } else {
+        g_hook->hook_unloader();
+    }
 }
 
 // -----------------------------------------------------------------
@@ -405,13 +415,20 @@ void HookContext::hook_plt() {
     dev_t native_bridge_dev = 0;
 
     for (auto &map : lsplt::MapInfo::Scan()) {
-        if (map.path.ends_with("/libandroid_runtime.so")) {
+        if (map.path.ends_with(pocket_runtime() ? "/libpocket_zygote_api28.so" : "/libandroid_runtime.so")) {
             android_runtime_inode = map.inode;
             android_runtime_dev = map.dev;
         } else if (map.path.ends_with("/libnativebridge.so")) {
             native_bridge_inode = map.inode;
             native_bridge_dev = map.dev;
         }
+    }
+
+    if (pocket_runtime()) {
+        PLT_HOOK_REGISTER(android_runtime_dev, android_runtime_inode, fork);
+        PLT_HOOK_REGISTER_SYM(android_runtime_dev, android_runtime_inode, "__android_log_close", android_log_close);
+        if (!lsplt::CommitHook()) ZLOGE("Pocket fork PLT hook failed\n");
+        return;
     }
 
     PLT_HOOK_REGISTER(native_bridge_dev, native_bridge_inode, dlclose);
@@ -620,6 +637,56 @@ void HookContext::restore_zygote_hook(JNIEnv *env) {
 void hook_entry() {
     default_new(g_hook);
     g_hook->hook_plt();
+}
+
+// Pocket owns the zygote's JNI registration. Receive its exact method table
+// rather than discovering ART-private structures or relying on native bridge
+// initialization, which precedes Pocket's replacement registration.
+extern "C" __attribute__((visibility("default")))
+int pocket_zygisk_install(JNIEnv *env, const JNINativeMethod *original, size_t count,
+                          const NativeBridgeRuntimeCallbacks *callbacks) {
+    if (!pocket_runtime() || !env || !original || count > 64 || g_hook) return -1;
+    default_new(g_hook);
+    static NativeBridgeRuntimeCallbacks pocket_callbacks;
+    if (!callbacks) { delete g_hook; g_hook = nullptr; return -1; }
+    pocket_callbacks = *callbacks;
+    g_hook->runtime_callbacks = &pocket_callbacks;
+    jclass clazz = env->FindClass(kZygote);
+    if (!clazz) return -1;
+    vector<JNINativeMethod> replacements;
+    auto prepare = [&](auto &methods) {
+        for (auto &method : methods) {
+            auto saved = method;
+            method.fnPtr = nullptr;
+            for (size_t i = 0; i < count; ++i) {
+                if (!strcmp(saved.name, original[i].name) &&
+                    !strcmp(saved.signature, original[i].signature)) {
+                    replacements.push_back(saved);
+                    method.fnPtr = original[i].fnPtr;
+                    break;
+                }
+            }
+        }
+    };
+    prepare(g_hook->fork_app_methods);
+    prepare(g_hook->specialize_app_methods);
+    prepare(g_hook->fork_server_methods);
+    if (replacements.size() != 2 ||
+        env->RegisterNatives(clazz, replacements.data(), replacements.size()) != JNI_OK) {
+        env->ExceptionClear();
+        delete g_hook; g_hook = nullptr;
+        return -1;
+    }
+    zygisk_logging();
+    g_hook->hook_plt();
+    if (!old_fork) {
+        g_hook->restore_zygote_hook(env);
+        g_hook->restore_plt_hook();
+        delete g_hook; g_hook = nullptr;
+        return -1;
+    }
+    ZLOGI("Pocket JNI specialization hooks installed\n");
+    return 0;
 }
 
 void hookJniNativeMethods(JNIEnv *env, const char *clz, JNINativeMethod *methods, int numMethods) {

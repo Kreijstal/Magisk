@@ -203,7 +203,9 @@ impl MagiskD {
 
         let is_root = cred.uid == 0;
         let is_shell = cred.uid == 2000;
-        let is_zygote = &context == "u:r:zygote:s0";
+        // Pocket zygote keeps the host app's SELinux context. Logical root is
+        // the guest authority here; peer_identity already validated its host UID.
+        let is_zygote = &context == "u:r:zygote:s0" || (crate::pocket::enabled() && is_root);
 
         if !is_root && !is_zygote && !self.is_client(cred.pid.unwrap_or(-1)) {
             // Unsupported client state

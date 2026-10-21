@@ -273,7 +273,8 @@ struct ZygiskContext {
     void sanitize_fds();
     bool exempt_fd(int fd);
     bool can_exempt_fd() const;
-    bool is_child() const { return pid <= 0; }
+    bool pocket_rejected = false;
+    bool is_child() const { return !pocket_rejected && pid <= 0; }
 
     // Compatibility shim
     void plt_hook_register(const char *regex, const char *symbol, void *fn, void **backup);

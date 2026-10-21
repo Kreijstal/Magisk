@@ -1,5 +1,7 @@
 // Pocket guest integration. Kernel credentials and host SELinux remain unchanged.
 use std::os::unix::net::UCred;
+#[path = "pocket_overlay.rs"]
+pub mod overlay;
 
 pub fn enabled() -> bool {
     std::env::var("POCKET_DIRECT_ROOT").is_ok_and(|root| root.starts_with('/'))

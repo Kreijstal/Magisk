@@ -130,9 +130,11 @@ impl MagiskD {
             return true;
         }
 
-        // Kernel-backed features cannot be enabled by a rootless guest.
+        // Pocket's own zygote and resolver implement userspace integration.
         if crate::pocket::enabled() {
-            self.zygisk_enabled.store(false, Ordering::Release);
+            let enabled = self.get_db_setting(DbEntryKey::ZygiskConfig) != 0;
+            self.zygisk_enabled.store(enabled, Ordering::Release);
+            crate::resetprop::set_prop(cstr!("pocket.zygisk.enabled"), if enabled { cstr!("1") } else { cstr!("0") });
             exec_common_scripts(cstr!("post-fs-data"));
             self.handle_modules();
             return false;

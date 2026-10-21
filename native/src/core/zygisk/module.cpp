@@ -361,7 +361,7 @@ void ZygiskContext::run_modules_pre(rust::Vec<int> &fds) {
             if (void *e = dlsym(h, "zygisk_module_entry")) {
                 modules.emplace_back(i, h, e);
             }
-        } else if (flags & SERVER_FORK_AND_SPECIALIZE) {
+        } else if ((flags & SERVER_FORK_AND_SPECIALIZE) || getenv("POCKET_DIRECT_ROOT")) {
             ZLOGW("Failed to dlopen zygisk module: %s\n", dlerror());
             fds[i] = -1;
         }
@@ -483,6 +483,13 @@ void ZygiskContext::nativeForkAndSpecialize_pre() {
     process = env->GetStringUTFChars(args.app->nice_name, nullptr);
     ZLOGV("pre  forkAndSpecialize [%s]\n", process);
     flags |= APP_FORK_AND_SPECIALIZE;
+
+    // Pocket rejects child zygotes before forking. Preserve that behavior
+    // instead of Zygisk's eager fork turning a rejected request into a child.
+    if (getenv("POCKET_DIRECT_ROOT") && args.app->is_child_zygote && *args.app->is_child_zygote) {
+        pocket_rejected = true;
+        return;
+    }
 
     fork_pre();
     if (is_child()) {

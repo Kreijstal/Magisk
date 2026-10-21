@@ -721,8 +721,7 @@ fn collect_modules(zygisk_enabled: bool, open_zygisk: bool) -> Vec<ModuleInfo> {
         }
 
         if crate::pocket::enabled() && (
-            (dir.contains_path(cstr!("system")) && !dir.contains_path(cstr!("skip_mount"))) ||
-            dir.contains_path(cstr!("sepolicy.rule")) || dir.contains_path(cstr!("zygisk")) ||
+            dir.contains_path(cstr!("sepolicy.rule")) ||
             dir.contains_path(cstr!("riru"))) {
             info!("{name}: unsupported kernel/mount/injection features in Pocket; skipped");
             return Ok(());
@@ -788,7 +787,9 @@ fn collect_modules(zygisk_enabled: bool, open_zygisk: bool) -> Vec<ModuleInfo> {
     .log_ok();
 
     if zygisk_enabled && open_zygisk {
-        let mut use_memfd = true;
+        // Host SELinux may reject executable anonymous files. Pocket already
+        // owns persistent module files and does not need anonymous copies.
+        let mut use_memfd = !crate::pocket::enabled();
         let mut convert_to_memfd = |fd: i32| -> i32 {
             if fd < 0 {
                 return fd;
@@ -842,6 +843,12 @@ impl MagiskD {
                 let prop = format!("{}/{}/system.prop", MODULEROOT, m.name);
                 let prop = Utf8CString::from(prop);
                 if prop.exists() { load_prop_file(&prop); }
+            }
+            let directories: Vec<_> = modules.iter().map(|m|
+                std::path::PathBuf::from(format!("{}/{}", MODULEROOT, m.name))).collect();
+            let paths: Vec<_> = directories.iter().map(|p| p.as_path()).collect();
+            if let Err(err) = crate::pocket::overlay::build(std::path::Path::new("/"), &paths, zygisk) {
+                error!("Pocket module view failed: {err}; base image remains active");
             }
         } else {
             self.apply_modules(&modules);

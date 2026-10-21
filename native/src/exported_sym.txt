@@ -1,3 +1,4 @@
 {
     NativeBridgeItf;
+    pocket_zygisk_install;
 };
